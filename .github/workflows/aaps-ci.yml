@@ -6,9 +6,10 @@ on:
       tagName:
         description: 'Select AAPS Version'
         required: true
-        default: '3.4.2.2'
+        default: 'master'
         type: choice
         options:
+          - master
           # ── 3.4.x (JDK 21) ──────────────────────────────
           - 3.4.2.2
           - 3.4.2.1
@@ -191,6 +192,7 @@ jobs:
           fetch-depth: 0
 
       - name: Fetch selected tag from upstream
+        if: ${{ github.event.inputs.tagName != 'master' }}      
         run: |
           git remote add upstream https://github.com/nightscout/AndroidAPS.git || true
           git fetch upstream refs/tags/${{ github.event.inputs.tagName }}:refs/tags/${{ github.event.inputs.tagName }}
@@ -212,10 +214,15 @@ jobs:
           echo "ℹ️ Tag $TAG → JDK $JAVA_VERSION (from jdk-map.json)"
 
       - name: Switch to selected tag
+        if: ${{ github.event.inputs.tagName != 'master' }}
         run: |
           git checkout refs/tags/${{ github.event.inputs.tagName }}
           echo "✅ Checked out tag ${{ github.event.inputs.tagName }}"
-
+      - name: Use current repo branch
+        if: ${{ github.event.inputs.tagName == 'master' }}
+        run: |
+          echo "🚀 Using current branch (master) with your custom changes"
+    
       - name: Set BUILD_VARIANT
         run: |
           BUILD_VARIANT="${{ github.event.inputs.buildVariant }}"
@@ -232,13 +239,17 @@ jobs:
 
       - name: Extract VERSION
         run: |
-          BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-          if echo "$BRANCH_NAME" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
-            VERSION="$BRANCH_NAME"
+          if [[ "${{ github.event.inputs.tagName }}" == "master" ]]; then
+            VERSION="custom-$(git rev-parse --short HEAD)"
           else
-            VERSION=$(grep 'val appVersion' buildSrc/src/main/kotlin/Versions.kt | awk -F '"' '{print $2}')
+            BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+            if echo "$BRANCH_NAME" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
+              VERSION="$BRANCH_NAME"
+            else
+              VERSION=$(grep 'val appVersion' buildSrc/src/main/kotlin/Versions.kt | awk -F '"' '{print $2}')
+            fi
           fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+            echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Set up JDK
         uses: actions/setup-java@v5
