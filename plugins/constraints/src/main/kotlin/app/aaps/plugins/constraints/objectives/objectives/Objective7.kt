@@ -17,7 +17,7 @@ class Objective7 @Inject constructor(
 
     init {
         tasks.add(
-            MinimumDurationTask(this, T.days(2).msecs())
+            MinimumDurationTask(this, T.hours(8).msecs())
                 .learned(Learned(R.string.objectives_autosens_learned))
         )
     }
