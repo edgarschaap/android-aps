@@ -17,7 +17,7 @@ class Objective9 @Inject constructor(
 
     init {
         tasks.add(
-            MinimumDurationTask(this, T.hours(4).msecs())
+            MinimumDurationTask(this, T.hours(1).msecs())
                 .learned(Learned(R.string.objectives_auto_learned))
         )
     }
