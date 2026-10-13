@@ -12,6 +12,8 @@ import app.aaps.core.keys.IntKey
 import app.aaps.core.objects.profile.ProfileSealed
 import app.aaps.core.utils.JsonHelper
 import app.aaps.plugins.aps.autotune.data.ATProfile
+import app.aaps.plugins.aps.autotune.data.BGDatum
+import app.aaps.plugins.aps.autotune.data.CRDatum
 import app.aaps.plugins.aps.autotune.data.LocalInsulin
 import app.aaps.plugins.aps.autotune.data.PreppedGlucose
 import app.aaps.shared.tests.TestBaseWithProfile
