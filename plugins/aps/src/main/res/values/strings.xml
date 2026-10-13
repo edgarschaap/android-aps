@@ -149,7 +149,7 @@
     <string name="autotune_min_isf_data_points_title">Minimum ISF data points per block</string>
     <string name="autotune_min_isf_data_points_summary">Minimum number of ISF-tagged glucose points needed before a block gets its own ISF result. Sparse blocks fall back to the all-day result.</string>
     <string name="autotune_min_cr_meals_title">Minimum meal events per block</string>
-    <string name="autotune_min_cr_meals_summary">Minimum number of meal events needed before a block gets its own carb ratio result. Sparse blocks fall back to the all-day result.</string>
+    <string name="autotune_min_cr_meals_summary">Minimum number of meal events needed before a block gets its own carb ratio result during a single daily Autotune pass. Sparse blocks fall back to the all-day result, so 1 is the recommended default.</string>
     <string name="autotune_circadian_ic_isf_title">Apply average result in circadian IC/ISF</string>
     <string name="autotune_circadian_ic_isf_summary">Classic Autotune does not tune circadian variations, so this option applies the average IC and ISF result to your circadian input profile. In multi-block IC/ISF mode the tuned block values are used directly.</string>
     <string name="autotune_additional_log_title">Include more log information for debugging</string>

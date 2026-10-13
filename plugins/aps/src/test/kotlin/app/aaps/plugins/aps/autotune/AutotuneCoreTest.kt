@@ -167,6 +167,29 @@ class AutotuneCoreTest : TestBaseWithProfile() {
         assertThat(blockResult.getIsf(0)).isEqualTo(blockResult.getIsf(23))
     }
 
+    @Test
+    fun autotuneCoreMultiBlockTunesIcWithSingleMealPerBlockWhenThresholdIsOne() {
+        whenever(preferences.get(DoubleKey.AutosensMax)).thenReturn(1.2)
+        whenever(preferences.get(DoubleKey.AutosensMin)).thenReturn(0.7)
+        whenever(preferences.get(DoubleKey.ApsSmbMin5MinCarbsImpact)).thenReturn(0.0)
+        whenever(preferences.get(BooleanKey.AutotuneMultiIsfIc)).thenReturn(true)
+        whenever(preferences.get(IntKey.AutotuneTimeBlockHours)).thenReturn(6)
+        whenever(preferences.get(IntKey.AutotuneMinIsfDataPoints)).thenReturn(1000)
+        whenever(preferences.get(IntKey.AutotuneMinCrMeals)).thenReturn(1)
+
+        val blockResult = autotuneCore.tuneAllTheThings(
+            preppedGlucoseWithSingleMealPerBlock(),
+            flatAtProfile(isf = 100.0, ic = 10.0),
+            flatAtProfile(isf = 100.0, ic = 10.0)
+        )
+
+        assertThat(blockResult.getIc(0)).isGreaterThan(10.0)
+        assertThat(blockResult.getIc(6)).isLessThan(10.0)
+        assertThat(blockResult.getIc(0)).isNotEqualTo(blockResult.getIc(6))
+        assertThat(blockResult.getIc(12)).isEqualTo(10.0)
+        assertThat(blockResult.getIc(23)).isEqualTo(10.0)
+    }
+
     /**
      * OpenAPS profile for Autotune only have one ISF value and one IC value
      */
@@ -293,6 +316,18 @@ class AutotuneCoreTest : TestBaseWithProfile() {
             crDatum(hour = 2, carbs = 60.0, insulin = 4.0),
             crDatum(hour = 7, carbs = 30.0, insulin = 4.0),
             crDatum(hour = 8, carbs = 30.0, insulin = 4.0)
+        ),
+        csfGlucoseData = emptyList(),
+        isfGlucoseData = emptyList(),
+        basalGlucoseData = emptyList(),
+        dateUtil = dateUtil
+    )
+
+    private fun preppedGlucoseWithSingleMealPerBlock(): PreppedGlucose = PreppedGlucose(
+        from = now,
+        crData = listOf(
+            crDatum(hour = 1, carbs = 60.0, insulin = 4.0),
+            crDatum(hour = 7, carbs = 30.0, insulin = 4.0)
         ),
         csfGlucoseData = emptyList(),
         isfGlucoseData = emptyList(),
