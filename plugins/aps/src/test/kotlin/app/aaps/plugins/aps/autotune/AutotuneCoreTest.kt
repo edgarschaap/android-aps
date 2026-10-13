@@ -172,6 +172,15 @@ class AutotuneCoreTest : TestBaseWithProfile() {
         whenever(preferences.get(DoubleKey.AutosensMax)).thenReturn(1.2)
         whenever(preferences.get(DoubleKey.AutosensMin)).thenReturn(0.7)
         whenever(preferences.get(DoubleKey.ApsSmbMin5MinCarbsImpact)).thenReturn(0.0)
+
+        whenever(preferences.get(BooleanKey.AutotuneMultiIsfIc)).thenReturn(false)
+        val classicResult = autotuneCore.tuneAllTheThings(
+            preppedGlucoseWithSingleMealPerBlock(),
+            flatAtProfile(isf = 100.0, ic = 10.0),
+            flatAtProfile(isf = 100.0, ic = 10.0)
+        )
+        val classicIc = classicResult.getIc(0)
+
         whenever(preferences.get(BooleanKey.AutotuneMultiIsfIc)).thenReturn(true)
         whenever(preferences.get(IntKey.AutotuneTimeBlockHours)).thenReturn(6)
         whenever(preferences.get(IntKey.AutotuneMinIsfDataPoints)).thenReturn(1000)
@@ -186,8 +195,8 @@ class AutotuneCoreTest : TestBaseWithProfile() {
         assertThat(blockResult.getIc(0)).isGreaterThan(10.0)
         assertThat(blockResult.getIc(6)).isLessThan(10.0)
         assertThat(blockResult.getIc(0)).isNotEqualTo(blockResult.getIc(6))
-        assertThat(blockResult.getIc(12)).isEqualTo(10.0)
-        assertThat(blockResult.getIc(23)).isEqualTo(10.0)
+        assertThat(blockResult.getIc(12)).isEqualTo(classicIc)
+        assertThat(blockResult.getIc(23)).isEqualTo(classicIc)
     }
 
     /**
