@@ -133,7 +133,7 @@ class AutotuneCoreTest : TestBaseWithProfile() {
             val isfBlocks = blockFromValueJsonArray(isfJson.getJSONArray("sensitivities"), "sensitivity")
                 ?: return null
             val icBlocks = when (val carbRatio = jsonObject.get("carb_ratio")) {
-                is JSONArray -> blockFromValueJsonArray(carbRatio, "value")
+                is JSONArray -> blockFromValueJsonArray(carbRatio, "value") ?: return null
                 else         -> arrayListOf(Block((T.hours(24).secs()) * 1000L, jsonObject.getDouble("carb_ratio")))
             }
             val basalBlocks = blockFromJsonArray(jsonObject.getJSONArray("basalprofile"))
@@ -189,7 +189,7 @@ class AutotuneCoreTest : TestBaseWithProfile() {
             for (index in 0 until size) {
                 val current = jsonArray.getJSONObject(index)
                 val currentTas = timeAsSeconds(current)
-                val nextTas = if (index == size - 1) T.hours(24).secs() else timeAsSeconds(jsonArray.getJSONObject(index + 1))
+                val nextTas = if (index == size - 1) T.hours(24).secs().toInt() else timeAsSeconds(jsonArray.getJSONObject(index + 1))
                 ret.add(index, Block((nextTas - currentTas) * 1000L, current.getDouble(valueKey)))
             }
         } catch (_: Exception) {
