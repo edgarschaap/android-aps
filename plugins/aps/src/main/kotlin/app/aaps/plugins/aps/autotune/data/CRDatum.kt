@@ -3,6 +3,7 @@ package app.aaps.plugins.aps.autotune.data
 import app.aaps.core.interfaces.utils.DateUtil
 import org.json.JSONException
 import org.json.JSONObject
+import java.util.Calendar
 
 /**
  * Created by Rumen Georgiev on 2/26/2018.
@@ -67,4 +68,6 @@ class CRDatum {
         if (crInsulin != obj.crInsulin) isEqual = false
         return isEqual
     }
+
+    fun hourOfDay(): Int = Calendar.getInstance().also { it.timeInMillis = crInitialCarbTime }.get(Calendar.HOUR_OF_DAY)
 }

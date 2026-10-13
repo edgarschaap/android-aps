@@ -6,6 +6,7 @@ import app.aaps.core.data.time.T
 import app.aaps.core.interfaces.utils.DateUtil
 import org.json.JSONException
 import org.json.JSONObject
+import java.util.Calendar
 import java.util.TimeZone
 
 /**
@@ -92,4 +93,6 @@ class BGDatum {
         if (mealCarbs != obj.mealCarbs) isEqual = false
         return isEqual
     }
+
+    fun hourOfDay(): Int = Calendar.getInstance().also { it.timeInMillis = date }.get(Calendar.HOUR_OF_DAY)
 }

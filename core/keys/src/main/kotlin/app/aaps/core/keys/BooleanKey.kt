@@ -70,6 +70,7 @@ enum class BooleanKey(
     AutotuneAutoSwitchProfile("autotune_auto", false),
     AutotuneCategorizeUamAsBasal("categorize_uam_as_basal", false),
     AutotuneTuneInsulinCurve("autotune_tune_insulin_curve", false),
+    AutotuneMultiIsfIc("autotune_multi_isf_ic", false),
     AutotuneCircadianIcIsf("autotune_circadian_ic_isf", false),
     AutotuneAdditionalLog("autotune_additional_log", false),
 

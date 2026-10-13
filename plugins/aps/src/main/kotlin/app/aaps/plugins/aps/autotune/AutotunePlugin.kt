@@ -288,13 +288,15 @@ class AutotunePlugin @Inject constructor(
         strResult += rh.gs(R.string.autotune_log_title)
         strResult += line
         val tuneInsulin = preferences.get(BooleanKey.AutotuneTuneInsulinCurve)
+        val multiBlockIcIsf = preferences.get(BooleanKey.AutotuneMultiIsfIc)
         if (tuneInsulin) {
             strResult += rh.gs(R.string.autotune_log_peak, rh.gs(R.string.insulin_peak), pumpProfile.localInsulin.peak, tunedProfile.localInsulin.peak)
             strResult += rh.gs(R.string.autotune_log_dia, rh.gs(app.aaps.core.ui.R.string.ic_short), pumpProfile.localInsulin.dia, tunedProfile.localInsulin.dia)
         }
+        strResult += if (multiBlockIcIsf) rh.gs(R.string.autotune_mode_multiblock) + "\n" else rh.gs(R.string.autotune_mode_classic) + "\n"
         // show ISF and CR
-        strResult += rh.gs(R.string.autotune_log_ic_isf, rh.gs(app.aaps.core.ui.R.string.isf_short), pumpProfile.isf, tunedProfile.isf)
-        strResult += rh.gs(R.string.autotune_log_ic_isf, rh.gs(app.aaps.core.ui.R.string.ic_short), pumpProfile.ic, tunedProfile.ic)
+        strResult += rh.gs(R.string.autotune_log_ic_isf, rh.gs(app.aaps.core.ui.R.string.isf_short), pumpProfile.averageIsf, tunedProfile.averageIsf)
+        strResult += rh.gs(R.string.autotune_log_ic_isf, rh.gs(app.aaps.core.ui.R.string.ic_short), pumpProfile.averageIc, tunedProfile.averageIc)
         strResult += line
         var totalBasal = 0.0
         var totalTuned = 0.0
@@ -483,6 +485,10 @@ class AutotunePlugin @Inject constructor(
             addPreference(AdaptiveSwitchPreference(ctx = context, booleanKey = BooleanKey.AutotuneCategorizeUamAsBasal, summary = R.string.autotune_categorize_uam_as_basal_summary, title = R.string.autotune_categorize_uam_as_basal_title))
             //addPreference(AdaptiveSwitchPreference(ctx = context, booleanKey = BooleanKey.AutotuneTuneInsulinCurve, summary = R.string.autotune_tune_insulin_curve_summary, title = R.string.autotune_tune_insulin_curve_title))
             addPreference(AdaptiveIntPreference(ctx = context, intKey = IntKey.AutotuneDefaultTuneDays, dialogMessage = R.string.autotune_default_tune_days_summary, title = R.string.autotune_default_tune_days_title))
+            addPreference(AdaptiveSwitchPreference(ctx = context, booleanKey = BooleanKey.AutotuneMultiIsfIc, summary = R.string.autotune_multi_isf_ic_summary, title = R.string.autotune_multi_isf_ic_title))
+            addPreference(AdaptiveIntPreference(ctx = context, intKey = IntKey.AutotuneTimeBlockHours, dialogMessage = R.string.autotune_time_block_hours_summary, title = R.string.autotune_time_block_hours_title))
+            addPreference(AdaptiveIntPreference(ctx = context, intKey = IntKey.AutotuneMinIsfDataPoints, dialogMessage = R.string.autotune_min_isf_data_points_summary, title = R.string.autotune_min_isf_data_points_title))
+            addPreference(AdaptiveIntPreference(ctx = context, intKey = IntKey.AutotuneMinCrMeals, dialogMessage = R.string.autotune_min_cr_meals_summary, title = R.string.autotune_min_cr_meals_title))
             addPreference(AdaptiveSwitchPreference(ctx = context, booleanKey = BooleanKey.AutotuneCircadianIcIsf, summary = R.string.autotune_circadian_ic_isf_summary, title = R.string.autotune_circadian_ic_isf_title))
             //addPreference(AdaptiveSwitchPreference(ctx = context, booleanKey = BooleanKey.AutotuneAdditionalLog, summary = R.string.autotune_additional_log_summary, title = R.string.autotune_additional_log_title))
         }

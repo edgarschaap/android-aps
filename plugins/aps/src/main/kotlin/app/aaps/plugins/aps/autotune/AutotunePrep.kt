@@ -272,7 +272,7 @@ class AutotunePrep @Inject constructor(
             glucoseDatum.avgDelta = avgDelta
 
             //sens = ISF
-            val sens = tunedProfile.isf
+            val sens = tunedProfile.averageIsf
 
             // for IOB calculations, use the average of the last 4 hours' basals to help convergence;
             // this helps since the basal this hour could be different from previous, especially if with autotune they start to diverge.
@@ -315,7 +315,7 @@ class AutotunePrep @Inject constructor(
             // Then, calculate carb absorption for that 5m interval using the deviation.
             if (mealCOB > 0) {
                 val ci = max(deviation, preferences.get(DoubleKey.ApsSmbMin5MinCarbsImpact))
-                val absorbed = ci * tunedProfile.ic / sens
+                val absorbed = ci * tunedProfile.averageIc / sens
                 // Store the COB, and use it as the starting point for the next data point.
                 mealCOB = max(0.0, mealCOB - absorbed)
             }

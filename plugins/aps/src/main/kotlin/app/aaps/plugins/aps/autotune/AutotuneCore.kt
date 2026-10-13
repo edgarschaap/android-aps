@@ -1,10 +1,14 @@
 package app.aaps.plugins.aps.autotune
 
 import app.aaps.core.interfaces.utils.Round
+import app.aaps.core.keys.BooleanKey
 import app.aaps.core.keys.DoubleKey
+import app.aaps.core.keys.IntKey
 import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.utils.Percentile
 import app.aaps.plugins.aps.autotune.data.ATProfile
+import app.aaps.plugins.aps.autotune.data.BGDatum
+import app.aaps.plugins.aps.autotune.data.CRDatum
 import app.aaps.plugins.aps.autotune.data.LocalInsulin
 import app.aaps.plugins.aps.autotune.data.PreppedGlucose
 import java.util.Calendar
@@ -20,16 +24,21 @@ class AutotuneCore @Inject constructor(
 
     fun tuneAllTheThings(preppedGlucose: PreppedGlucose, previousAutotune: ATProfile, pumpProfile: ATProfile): ATProfile {
         //var pumpBasalProfile = pumpProfile.basalprofile;
+        val multiBlockIcIsf = preferences.get(BooleanKey.AutotuneMultiIsfIc)
+        val blockHours = normalizeTimeBlockHours(preferences.get(IntKey.AutotuneTimeBlockHours))
+        val minIsfDataPoints = preferences.get(IntKey.AutotuneMinIsfDataPoints)
+        val minCrMeals = preferences.get(IntKey.AutotuneMinCrMeals)
+        val timeBlocks = buildTimeBlocks(blockHours)
         val pumpBasalProfile = pumpProfile.basal
         //console.error(pumpBasalProfile);
         var basalProfile = previousAutotune.basal
         //console.error(basalProfile);
         //console.error(isfProfile);
-        var isf = previousAutotune.isf
+        var isf = previousAutotune.averageIsf
         //console.error(isf);
-        var carbRatio = previousAutotune.ic
+        var carbRatio = previousAutotune.averageIc
         //console.error(carbRatio);
-        val csf = isf / carbRatio
+        val csf = if (carbRatio == 0.0) 0.0 else isf / carbRatio
         val dia = previousAutotune.dia
         val peak = previousAutotune.peak
         val csfGlucose = preppedGlucose.csfGlucoseData
@@ -38,9 +47,9 @@ class AutotuneCore @Inject constructor(
         val crData = preppedGlucose.crData
         val diaDeviations = preppedGlucose.diaDeviations
         val peakDeviations = preppedGlucose.peakDeviations
-        val pumpISF = pumpProfile.isf
-        val pumpCarbRatio = pumpProfile.ic
-        val pumpCSF = pumpISF / pumpCarbRatio
+        val pumpISF = pumpProfile.averageIsf
+        val pumpCarbRatio = pumpProfile.averageIc
+        val pumpCSF = if (pumpCarbRatio == 0.0) 0.0 else pumpISF / pumpCarbRatio
         // Autosens constraints
         val autotuneMax = preferences.get(DoubleKey.AutosensMax)
         val autotuneMin = preferences.get(DoubleKey.AutosensMin)
@@ -481,10 +490,40 @@ class AutotuneCore @Inject constructor(
         if (newISF != 0.0) {
             isf = newISF
         }
+        val tunedIc = if (multiBlockIcIsf) {
+            tuneIcByBlock(
+                timeBlocks = timeBlocks,
+                previousAutotune = previousAutotune,
+                pumpProfile = pumpProfile,
+                crData = crData,
+                csfGlucose = csfGlucose,
+                globalNewCR = Round.roundTo(carbRatio, 0.001),
+                minCrMeals = minCrMeals,
+                min5minCarbImpact = min5minCarbImpact,
+                autotuneMax = autotuneMax,
+                autotuneMin = autotuneMin
+            )
+        } else {
+            DoubleArray(24) { Round.roundTo(carbRatio, 0.001) }
+        }
+        val tunedIsf = if (multiBlockIcIsf) {
+            tuneIsfByBlock(
+                timeBlocks = timeBlocks,
+                previousAutotune = previousAutotune,
+                pumpProfile = pumpProfile,
+                isfGlucose = isfGlucose,
+                globalNewIsf = Round.roundTo(isf, 0.001),
+                minIsfDataPoints = minIsfDataPoints,
+                autotuneMax = autotuneMax,
+                autotuneMin = autotuneMin
+            )
+        } else {
+            DoubleArray(24) { Round.roundTo(isf, 0.001) }
+        }
         previousAutotune.from = preppedGlucose.from
         previousAutotune.basal = basalProfile
-        previousAutotune.isf = isf
-        previousAutotune.ic = Round.roundTo(carbRatio, 0.001)
+        previousAutotune.isf = tunedIsf
+        previousAutotune.ic = tunedIc
         previousAutotune.basalUnTuned = basalUnTuned
         previousAutotune.dia = newDia
         previousAutotune.peak = newPeak
@@ -496,5 +535,246 @@ class AutotuneCore @Inject constructor(
 
     private fun log(message: String) {
         autotuneFS.atLog("[Core] $message")
+    }
+
+    private data class TimeBlock(val startHour: Int, val endHour: Int) {
+        fun contains(hour: Int): Boolean = hour in startHour..endHour
+        val label: String get() = String.format("%02d:00-%02d:59", startHour, endHour)
+    }
+
+    private fun normalizeTimeBlockHours(blockHours: Int): Int = when (blockHours) {
+        4, 6, 8, 12, 24 -> blockHours
+        else            -> 6
+    }
+
+    private fun buildTimeBlocks(blockHours: Int): List<TimeBlock> =
+        (0 until 24 step blockHours).map { startHour -> TimeBlock(startHour = startHour, endHour = (startHour + blockHours - 1).coerceAtMost(23)) }
+
+    private fun tuneIcByBlock(
+        timeBlocks: List<TimeBlock>,
+        previousAutotune: ATProfile,
+        pumpProfile: ATProfile,
+        crData: List<CRDatum>,
+        csfGlucose: List<BGDatum>,
+        globalNewCR: Double,
+        minCrMeals: Int,
+        min5minCarbImpact: Double,
+        autotuneMax: Double,
+        autotuneMin: Double
+    ): DoubleArray {
+        val tunedIc = DoubleArray(24) { globalNewCR }
+        timeBlocks.forEach { block ->
+            val blockCrData = crData.filter { block.contains(it.hourOfDay()) }
+            val currentIsf = previousAutotune.getIsf(block.startHour)
+            val currentCr = previousAutotune.getIc(block.startHour)
+            val pumpIsf = pumpProfile.getIsf(block.startHour)
+            val pumpCr = pumpProfile.getIc(block.startHour)
+            val currentCsf = if (currentCr == 0.0) 0.0 else currentIsf / currentCr
+            val pumpCsf = if (pumpCr == 0.0) 0.0 else pumpIsf / pumpCr
+
+            val blockCsfGlucose = csfGlucose.filter { block.contains(it.hourOfDay()) }
+            val blockCsf = if (blockCsfGlucose.isEmpty()) {
+                globalNewCR.takeIf { it != 0.0 }?.let { currentIsf / it } ?: currentCsf
+            } else {
+                calculateCsf(blockCsfGlucose, currentCsf, pumpCsf, min5minCarbImpact, autotuneMax, autotuneMin, block.label)
+            }
+
+            val blockCr = if (blockCrData.size < minCrMeals) {
+                log("Block ${block.label}: only ${blockCrData.size} CR meal events, falling back to all-day CR $globalNewCR")
+                globalNewCR
+            } else {
+                calculateCr(blockCrData, currentIsf, currentCr, pumpCr, autotuneMax, autotuneMin, block.label)
+            }
+
+            log("Block ${block.label}: tuned CSF $blockCsf and CR $blockCr")
+            for (hour in block.startHour..block.endHour) {
+                tunedIc[hour] = blockCr
+            }
+        }
+        return tunedIc
+    }
+
+    private fun tuneIsfByBlock(
+        timeBlocks: List<TimeBlock>,
+        previousAutotune: ATProfile,
+        pumpProfile: ATProfile,
+        isfGlucose: List<BGDatum>,
+        globalNewIsf: Double,
+        minIsfDataPoints: Int,
+        autotuneMax: Double,
+        autotuneMin: Double
+    ): DoubleArray {
+        val tunedIsf = DoubleArray(24) { globalNewIsf }
+        timeBlocks.forEach { block ->
+            val blockIsfGlucose = isfGlucose.filter { block.contains(it.hourOfDay()) }
+            val blockIsf = if (blockIsfGlucose.size < minIsfDataPoints) {
+                log("Block ${block.label}: only ${blockIsfGlucose.size} ISF data points, falling back to all-day ISF $globalNewIsf")
+                globalNewIsf
+            } else {
+                calculateIsf(
+                    isfGlucose = blockIsfGlucose,
+                    currentIsf = previousAutotune.getIsf(block.startHour),
+                    pumpIsf = pumpProfile.getIsf(block.startHour),
+                    autotuneMax = autotuneMax,
+                    autotuneMin = autotuneMin,
+                    label = block.label
+                )
+            }
+            for (hour in block.startHour..block.endHour) {
+                tunedIsf[hour] = blockIsf
+            }
+        }
+        return tunedIsf
+    }
+
+    private fun calculateCsf(
+        csfGlucose: List<BGDatum>,
+        currentCsf: Double,
+        pumpCsf: Double,
+        min5minCarbImpact: Double,
+        autotuneMax: Double,
+        autotuneMin: Double,
+        label: String
+    ): Double {
+        var deviations = 0.0
+        var mealCarbs = 0
+        var totalMealCarbs = 0
+        var totalDeviations = 0.0
+        for (datum in csfGlucose) {
+            when (datum.mealAbsorption) {
+                "start" -> {
+                    deviations = 0.0
+                    mealCarbs = datum.mealCarbs
+                }
+
+                "end"   -> {
+                    deviations += datum.deviation
+                    totalMealCarbs += mealCarbs
+                    totalDeviations += deviations
+                }
+
+                else    -> {
+                    deviations += max(0 * min5minCarbImpact, datum.deviation)
+                    mealCarbs = max(mealCarbs, datum.mealCarbs)
+                }
+            }
+        }
+        if (totalMealCarbs == 0) totalMealCarbs += mealCarbs
+        if (totalDeviations == 0.0) totalDeviations += deviations
+        val fullNewCsf = if (totalMealCarbs == 0) currentCsf else Round.roundTo(totalDeviations / totalMealCarbs, 0.01)
+        var newCsf = 0.8 * currentCsf + 0.2 * fullNewCsf
+        if (pumpCsf != 0.0) {
+            val maxCsf = pumpCsf * autotuneMax
+            val minCsf = pumpCsf * autotuneMin
+            if (newCsf > maxCsf) {
+                log("Block $label: limiting CSF to ${Round.roundTo(maxCsf, 0.01)}")
+                newCsf = maxCsf
+            } else if (newCsf < minCsf) {
+                log("Block $label: limiting CSF to ${Round.roundTo(minCsf, 0.01)}")
+                newCsf = minCsf
+            }
+        }
+        return Round.roundTo(newCsf, 0.001)
+    }
+
+    private fun calculateCr(
+        crData: List<CRDatum>,
+        currentIsf: Double,
+        currentCr: Double,
+        pumpCr: Double,
+        autotuneMax: Double,
+        autotuneMin: Double,
+        label: String
+    ): Double {
+        var crTotalCarbs = 0.0
+        var crTotalInsulin = 0.0
+        for (crDatum in crData) {
+            val crBGChange = crDatum.crEndBG - crDatum.crInitialBG
+            val crInsulinReq = crBGChange / currentIsf
+            crDatum.crInsulinTotal = crDatum.crInitialIOB + crDatum.crInsulin + crInsulinReq
+            if (crDatum.crInsulinTotal > 0) {
+                crTotalCarbs += crDatum.crCarbs
+                crTotalInsulin += crDatum.crInsulinTotal
+            }
+        }
+        crTotalInsulin = Round.roundTo(crTotalInsulin, 0.001)
+        val totalCr = if (crTotalInsulin != 0.0) Round.roundTo(crTotalCarbs / crTotalInsulin, 0.001) else 0.0
+        var fullNewCr = if (totalCr == 0.0) currentCr else totalCr
+        var maxCr = pumpCr * autotuneMax
+        if (maxCr > 150) maxCr = 150.0
+        var minCr = pumpCr * autotuneMin
+        if (minCr < 3) minCr = 3.0
+        if (pumpCr != 0.0) {
+            if (fullNewCr > maxCr) {
+                log("Block $label: limiting fullNewCR from $fullNewCr to ${Round.roundTo(maxCr, 0.01)}")
+                fullNewCr = maxCr
+            } else if (fullNewCr < minCr) {
+                log("Block $label: limiting fullNewCR from $fullNewCr to ${Round.roundTo(minCr, 0.01)}")
+                fullNewCr = minCr
+            }
+        }
+        var newCr = 0.8 * currentCr + 0.2 * fullNewCr
+        if (pumpCr != 0.0) {
+            if (newCr > maxCr) {
+                log("Block $label: limiting CR to ${Round.roundTo(maxCr, 0.01)}")
+                newCr = maxCr
+            } else if (newCr < minCr) {
+                log("Block $label: limiting CR to ${Round.roundTo(minCr, 0.01)}")
+                newCr = minCr
+            }
+        }
+        return Round.roundTo(newCr, 0.001)
+    }
+
+    private fun calculateIsf(
+        isfGlucose: List<BGDatum>,
+        currentIsf: Double,
+        pumpIsf: Double,
+        autotuneMax: Double,
+        autotuneMin: Double,
+        label: String
+    ): Double {
+        val isfDeviations: MutableList<Double> = ArrayList()
+        val bgIs: MutableList<Double> = ArrayList()
+        val ratios: MutableList<Double> = ArrayList()
+        for (datum in isfGlucose) {
+            isfDeviations.add(datum.deviation)
+            bgIs.add(datum.bgi)
+            ratios.add(1 + datum.deviation / datum.bgi)
+        }
+        isfDeviations.sort()
+        bgIs.sort()
+        ratios.sort()
+        val p50Deviation = Round.roundTo(Percentile.percentile(isfDeviations.toTypedArray(), 0.50), 0.001)
+        val p50Bgi = Round.roundTo(Percentile.percentile(bgIs.toTypedArray(), 0.50), 0.001)
+        val p50Ratios = Round.roundTo(Percentile.percentile(ratios.toTypedArray(), 0.50), 0.001)
+        var fullNewIsf = Round.roundTo(currentIsf * p50Ratios, 0.001)
+        val maxIsf = pumpIsf / autotuneMin
+        val minIsf = pumpIsf / autotuneMax
+        var adjustedIsf = if (fullNewIsf < 0) currentIsf else fullNewIsf
+        if (pumpIsf != 0.0) {
+            if (adjustedIsf > maxIsf) {
+                log("Block $label: limiting adjusted ISF to ${Round.roundTo(maxIsf, 0.01)}")
+                adjustedIsf = maxIsf
+            } else if (adjustedIsf < minIsf) {
+                log("Block $label: limiting adjusted ISF to ${Round.roundTo(minIsf, 0.01)}")
+                adjustedIsf = minIsf
+            }
+        }
+        var newIsf = 0.8 * currentIsf + 0.2 * adjustedIsf
+        if (pumpIsf != 0.0) {
+            if (newIsf > maxIsf) {
+                log("Block $label: limiting ISF to ${Round.roundTo(maxIsf, 0.01)}")
+                newIsf = maxIsf
+            } else if (newIsf < minIsf) {
+                log("Block $label: limiting ISF to ${Round.roundTo(minIsf, 0.01)}")
+                newIsf = minIsf
+            }
+        }
+        newIsf = Round.roundTo(newIsf, 0.001)
+        fullNewIsf = Round.roundTo(fullNewIsf, 0.001)
+        adjustedIsf = Round.roundTo(adjustedIsf, 0.001)
+        log("Block $label: p50deviation: $p50Deviation p50BGI $p50Bgi p50ratios: $p50Ratios old ISF: $currentIsf fullNewISF: $fullNewIsf adjustedISF: $adjustedIsf newISF: $newIsf")
+        return newIsf
     }
 }

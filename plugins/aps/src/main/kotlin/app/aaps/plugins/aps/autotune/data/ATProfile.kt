@@ -14,6 +14,7 @@ import app.aaps.core.interfaces.profile.PureProfile
 import app.aaps.core.interfaces.resources.ResourceHelper
 import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.interfaces.utils.Round
+import app.aaps.core.keys.BooleanKey
 import app.aaps.core.keys.DoubleKey
 import app.aaps.core.keys.IntKey
 import app.aaps.core.keys.interfaces.Preferences
@@ -48,8 +49,8 @@ class ATProfile @Inject constructor(
     var profileName: String = ""
     var basal = DoubleArray(24)
     var basalUnTuned = IntArray(24)
-    var ic = 0.0
-    var isf = 0.0
+    var ic = DoubleArray(24)
+    var isf = DoubleArray(24)
     var dia = 0.0
     var peak = 0
     var isValid: Boolean = false
@@ -61,10 +62,15 @@ class ATProfile @Inject constructor(
         get() = profile.getIcsValues().size
     val isfSize: Int
         get() = profile.getIsfsMgdlValues().size
-    private val avgISF: Double
+    private val profileAvgISF: Double
         get() = if (profile.getIsfsMgdlValues().size == 1) profile.getIsfsMgdlValues()[0].value else Round.roundTo(averageProfileValue(profile.getIsfsMgdlValues()), 0.01)
-    private val avgIC: Double
+    private val profileAvgIC: Double
         get() = if (profile.getIcsValues().size == 1) profile.getIcsValues()[0].value else Round.roundTo(averageProfileValue(profile.getIcsValues()), 0.01)
+
+    val averageIc: Double
+        get() = Round.roundTo(ic.average(), 0.001)
+    val averageIsf: Double
+        get() = Round.roundTo(isf.average(), 0.001)
 
     fun with(profile: Profile, localInsulin: LocalInsulin): ATProfile {
         this.profile = profile as ProfileSealed
@@ -75,17 +81,21 @@ class ATProfile @Inject constructor(
         if (isValid) {
             //initialize tuned value with current profile values
             var minBasal = 1.0
+            var minIc = Double.MAX_VALUE
+            var minIsf = Double.MAX_VALUE
             for (h in 0..23) {
                 basal[h] = Round.roundTo(profile.basalBlocks.blockValueBySeconds(T.hours(h.toLong()).secs().toInt(), 1.0, 0), 0.001)
+                ic[h] = Round.roundTo(profile.icBlocks.blockValueBySeconds(T.hours(h.toLong()).secs().toInt(), 1.0, 0), 0.001)
+                isf[h] = Round.roundTo(profile.isfBlocks.blockValueBySeconds(T.hours(h.toLong()).secs().toInt(), 1.0, 0), 0.001)
                 minBasal = min(minBasal, basal[h])
+                minIc = min(minIc, ic[h])
+                minIsf = min(minIsf, isf[h])
             }
-            ic = avgIC
-            isf = avgISF
-            if (ic * isf * minBasal == 0.0)     // Additional validity check to avoid error later in AutotunePrep
+            if (minIc * minIsf * minBasal == 0.0)     // Additional validity check to avoid error later in AutotunePrep
                 isValid = false
             pumpProfile = profile
-            pumpProfileAvgIC = avgIC
-            pumpProfileAvgISF = avgISF
+            pumpProfileAvgIC = profileAvgIC
+            pumpProfileAvgISF = profileAvgISF
         }
         dia = localInsulin.dia
         peak = localInsulin.peak
@@ -93,19 +103,25 @@ class ATProfile @Inject constructor(
     }
 
     fun getBasal(timestamp: Long): Double = basal[MidnightUtils.secondsFromMidnight(timestamp) / 3600]
+    fun getIc(hour: Int): Double = ic[hour.mod(ic.size)]
+    fun getIc(timestamp: Long): Double = getIc(MidnightUtils.secondsFromMidnight(timestamp) / 3600)
+    fun getIsf(hour: Int): Double = isf[hour.mod(isf.size)]
+    fun getIsf(timestamp: Long): Double = getIsf(MidnightUtils.secondsFromMidnight(timestamp) / 3600)
 
     // for localProfilePlugin Synchronisation
     fun basal() = jsonArray(basal)
     fun ic(circadian: Boolean = false): JSONArray {
+        if (preferences.get(BooleanKey.AutotuneMultiIsfIc)) return jsonArray(ic)
         if (circadian)
-            return jsonArray(pumpProfile.icBlocks, avgIC / pumpProfileAvgIC)
-        return jsonArray(ic)
+            return jsonArray(pumpProfile.icBlocks, averageIc / pumpProfileAvgIC)
+        return jsonArray(averageIc)
     }
 
     fun isf(circadian: Boolean = false): JSONArray {
+        if (preferences.get(BooleanKey.AutotuneMultiIsfIc)) return jsonArray(fromMgdlToUnits(isf))
         if (circadian)
-            return jsonArray(pumpProfile.isfBlocks, avgISF / pumpProfileAvgISF)
-        return jsonArray(profileUtil.fromMgdlToUnits(isf, profile.units))
+            return jsonArray(pumpProfile.isfBlocks, averageIsf / pumpProfileAvgISF)
+        return jsonArray(profileUtil.fromMgdlToUnits(averageIsf, profile.units))
     }
 
     fun getProfile(circadian: Boolean = false): PureProfile {
@@ -126,6 +142,7 @@ class ATProfile @Inject constructor(
         var jsonString = ""
         val json = JSONObject()
         val insulinInterface: Insulin = activePlugin.activeInsulin
+        val multiBlockIcIsf = preferences.get(BooleanKey.AutotuneMultiIsfIc)
         try {
             json.put("name", profileName)
             json.put("min_5m_carbimpact", preferences.get(DoubleKey.ApsAmaMin5MinCarbsImpact))
@@ -157,15 +174,27 @@ class ATProfile @Inject constructor(
                 )
             }
             json.put("basalprofile", basals)
-            val isfValue = Round.roundTo(avgISF, 0.001)
+            val isfValues = if (multiBlockIcIsf) isf else DoubleArray(24) { averageIsf }
             json.put(
                 "isfProfile",
                 JSONObject().put(
                     "sensitivities",
-                    JSONArray().put(JSONObject().put("i", 0).put("start", "00:00:00").put("sensitivity", isfValue).put("offset", 0).put("x", 0).put("endoffset", 1440))
+                    JSONArray().also { sensitivities ->
+                        for (h in 0..23) {
+                            sensitivities.put(
+                                JSONObject()
+                                    .put("i", h)
+                                    .put("start", DecimalFormat("00").format(h) + ":00:00")
+                                    .put("sensitivity", Round.roundTo(isfValues[h], 0.001))
+                                    .put("offset", h * 60)
+                                    .put("x", h)
+                                    .put("endoffset", (h + 1) * 60)
+                            )
+                        }
+                    }
                 )
             )
-            json.put("carb_ratio", avgIC)
+            json.put("carb_ratio", if (multiBlockIcIsf) jsonArray(ic) else averageIc)
             json.put("autosens_max", preferences.get(DoubleKey.AutosensMax))
             json.put("autosens_min", preferences.get(DoubleKey.AutosensMin))
             json.put("units", GlucoseUnit.MGDL.asText)
@@ -180,14 +209,18 @@ class ATProfile @Inject constructor(
 
     fun data(circadian: Boolean = false): PureProfile? {
         val json: JSONObject = profile.toPureNsJson(dateUtil)
+        val multiBlockIcIsf = preferences.get(BooleanKey.AutotuneMultiIsfIc)
         try {
             json.put("dia", dia)
-            if (circadian) {
-                json.put("sens", jsonArray(pumpProfile.isfBlocks, avgISF / pumpProfileAvgISF))
-                json.put("carbratio", jsonArray(pumpProfile.icBlocks, avgIC / pumpProfileAvgIC))
-            } else {
-                json.put("sens", jsonArray(profileUtil.fromMgdlToUnits(isf, profile.units)))
+            if (multiBlockIcIsf) {
+                json.put("sens", jsonArray(fromMgdlToUnits(isf)))
                 json.put("carbratio", jsonArray(ic))
+            } else if (circadian) {
+                json.put("sens", jsonArray(pumpProfile.isfBlocks, averageIsf / pumpProfileAvgISF))
+                json.put("carbratio", jsonArray(pumpProfile.icBlocks, averageIc / pumpProfileAvgIC))
+            } else {
+                json.put("sens", jsonArray(profileUtil.fromMgdlToUnits(averageIsf, profile.units)))
+                json.put("carbratio", jsonArray(averageIc))
             }
             json.put("basal", jsonArray(basal))
         } catch (e: JSONException) {
@@ -238,6 +271,8 @@ class ATProfile @Inject constructor(
                 .put("timeAsSeconds", 0)
                 .put("value", value)
         )
+
+    private fun fromMgdlToUnits(values: DoubleArray): DoubleArray = DoubleArray(values.size) { profileUtil.fromMgdlToUnits(values[it], profile.units) }
 
     private fun jsonArray(values: List<Block>, multiplier: Double = 1.0): JSONArray {
         val json = JSONArray()

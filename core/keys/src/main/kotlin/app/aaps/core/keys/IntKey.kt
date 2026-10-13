@@ -62,6 +62,9 @@ enum class IntKey(
     InsulinOrefPeak("insulin_oref_peak", 75, 35, 120, hideParentScreenIfHidden = true),
 
     AutotuneDefaultTuneDays("autotune_default_tune_days", 5, 1, 30),
+    AutotuneTimeBlockHours("autotune_time_block_hours", 6, 4, 24),
+    AutotuneMinIsfDataPoints("autotune_min_isf_data_points", 8, 1, 500),
+    AutotuneMinCrMeals("autotune_min_cr_meals", 2, 1, 100),
 
     // AutoExportPasswordExpiryDays("auto_export_password_expiry_days", 28, 7, 28),
 

@@ -6,7 +6,9 @@ import app.aaps.core.data.model.data.TargetBlock
 import app.aaps.core.data.time.T
 import app.aaps.core.interfaces.profile.PureProfile
 import app.aaps.core.interfaces.utils.DateUtil
+import app.aaps.core.keys.BooleanKey
 import app.aaps.core.keys.DoubleKey
+import app.aaps.core.keys.IntKey
 import app.aaps.core.objects.profile.ProfileSealed
 import app.aaps.core.utils.JsonHelper
 import app.aaps.plugins.aps.autotune.data.ATProfile
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.Test
 import org.mockito.Mock
 import org.mockito.kotlin.whenever
 import java.io.File
+import java.util.Arrays
 import java.util.TimeZone
 
 class AutotuneCoreTest : TestBaseWithProfile() {
@@ -48,11 +51,12 @@ class AutotuneCoreTest : TestBaseWithProfile() {
         whenever(preferences.get(DoubleKey.AutosensMax)).thenReturn(autotuneMax)
         whenever(preferences.get(DoubleKey.AutosensMin)).thenReturn(autotuneMin)
         whenever(preferences.get(DoubleKey.ApsSmbMin5MinCarbsImpact)).thenReturn(min5mCarbImpact)
+        whenever(preferences.get(BooleanKey.AutotuneMultiIsfIc)).thenReturn(false)
         val oapsOutputProfileJson = File("src/test/res/autotune/test1/aapsorefprofile.json").readText()
         val oapsOutputProfile = atProfileFromOapsJson(JSONObject(oapsOutputProfileJson), dateUtil)!!
         val outProfile = autotuneCore.tuneAllTheThings(prep, inputProfile, inputProfile)
-        assertThat(outProfile.isf).isEqualTo(oapsOutputProfile.isf)
-        assertThat(outProfile.ic).isEqualTo(oapsOutputProfile.ic)
+        assertThat(Arrays.equals(outProfile.isf, oapsOutputProfile.isf)).isTrue()
+        assertThat(Arrays.equals(outProfile.ic, oapsOutputProfile.ic)).isTrue()
         for (i in 0..23) {
             assertThat(outProfile.basal[i]).isEqualTo(oapsOutputProfile.basal[i])
         }
@@ -70,13 +74,43 @@ class AutotuneCoreTest : TestBaseWithProfile() {
         whenever(preferences.get(DoubleKey.AutosensMax)).thenReturn(autotuneMax)
         whenever(preferences.get(DoubleKey.AutosensMin)).thenReturn(autotuneMin)
         whenever(preferences.get(DoubleKey.ApsSmbMin5MinCarbsImpact)).thenReturn(min5mCarbImpact)
+        whenever(preferences.get(BooleanKey.AutotuneMultiIsfIc)).thenReturn(false)
         val oapsOutputProfileJson = File("src/test/res/autotune/test4/newprofile.2022-05-30.json").readText()
         val oapsOutputProfile = atProfileFromOapsJson(JSONObject(oapsOutputProfileJson), dateUtil)!!
         val outProfile = autotuneCore.tuneAllTheThings(prep, inputProfile, pumpProfile)
-        assertThat(outProfile.isf).isEqualTo(oapsOutputProfile.isf)
-        assertThat(outProfile.ic).isEqualTo(oapsOutputProfile.ic)
+        assertThat(Arrays.equals(outProfile.isf, oapsOutputProfile.isf)).isTrue()
+        assertThat(Arrays.equals(outProfile.ic, oapsOutputProfile.ic)).isTrue()
         for (i in 0..23) {
             assertThat(outProfile.basal[i]).isEqualTo(oapsOutputProfile.basal[i])
+        }
+    }
+
+    @Suppress("SpellCheckingInspection")
+    @Test
+    fun autotuneCoreMultiBlockFallsBackToClassicWhenThresholdsAreHigh() {
+        val prepJson = File("src/test/res/autotune/test1/autotune.2022-05-21.json").readText()
+        val inputProfileJson = File("src/test/res/autotune/test1/profile.pump.json").readText()
+        val prep = PreppedGlucose(JSONObject(prepJson), dateUtil)
+
+        whenever(preferences.get(DoubleKey.AutosensMax)).thenReturn(1.2)
+        whenever(preferences.get(DoubleKey.AutosensMin)).thenReturn(0.7)
+        whenever(preferences.get(DoubleKey.ApsSmbMin5MinCarbsImpact)).thenReturn(0.0)
+
+        whenever(preferences.get(BooleanKey.AutotuneMultiIsfIc)).thenReturn(false)
+        val classicInput = atProfileFromOapsJson(JSONObject(inputProfileJson), dateUtil)!!
+        val classicResult = autotuneCore.tuneAllTheThings(prep, classicInput, classicInput)
+
+        whenever(preferences.get(BooleanKey.AutotuneMultiIsfIc)).thenReturn(true)
+        whenever(preferences.get(IntKey.AutotuneTimeBlockHours)).thenReturn(6)
+        whenever(preferences.get(IntKey.AutotuneMinIsfDataPoints)).thenReturn(10_000)
+        whenever(preferences.get(IntKey.AutotuneMinCrMeals)).thenReturn(10_000)
+        val multiInput = atProfileFromOapsJson(JSONObject(inputProfileJson), dateUtil)!!
+        val multiResult = autotuneCore.tuneAllTheThings(prep, multiInput, multiInput)
+
+        assertThat(Arrays.equals(classicResult.isf, multiResult.isf)).isTrue()
+        assertThat(Arrays.equals(classicResult.ic, multiResult.ic)).isTrue()
+        for (i in 0..23) {
+            assertThat(classicResult.basal[i]).isEqualTo(multiResult.basal[i])
         }
     }
 
@@ -96,14 +130,11 @@ class AutotuneCoreTest : TestBaseWithProfile() {
             val localInsulin = LocalInsulin("insulin", peak, dia)
             val timezone = TimeZone.getTimeZone(JsonHelper.safeGetString(jsonObject, "timezone", "UTC"))
             val isfJson = jsonObject.getJSONObject("isfProfile")
-            val isfBlocks = ArrayList<Block>(1).also {
-                val isfJsonArray = isfJson.getJSONArray("sensitivities")
-                val value = isfJsonArray.getJSONObject(0).getDouble("sensitivity")
-                it.add(0, Block((T.hours(24).secs()) * 1000L, value))
-            }
-            val icBlocks = ArrayList<Block>(1).also {
-                val value = jsonObject.getDouble("carb_ratio")
-                it.add(0, Block((T.hours(24).secs()) * 1000L, value))
+            val isfBlocks = blockFromValueJsonArray(isfJson.getJSONArray("sensitivities"), "sensitivity")
+                ?: return null
+            val icBlocks = when (val carbRatio = jsonObject.get("carb_ratio")) {
+                is JSONArray -> blockFromValueJsonArray(carbRatio, "value")
+                else         -> arrayListOf(Block((T.hours(24).secs()) * 1000L, jsonObject.getDouble("carb_ratio")))
             }
             val basalBlocks = blockFromJsonArray(jsonObject.getJSONArray("basalprofile"))
                 ?: return null
@@ -149,5 +180,33 @@ class AutotuneCoreTest : TestBaseWithProfile() {
             return null
         }
         return ret
+    }
+
+    private fun blockFromValueJsonArray(jsonArray: JSONArray?, valueKey: String): ArrayList<Block>? {
+        val size = jsonArray?.length() ?: return null
+        val ret = ArrayList<Block>(size)
+        try {
+            for (index in 0 until size) {
+                val current = jsonArray.getJSONObject(index)
+                val currentTas = timeAsSeconds(current)
+                val nextTas = if (index == size - 1) T.hours(24).secs() else timeAsSeconds(jsonArray.getJSONObject(index + 1))
+                ret.add(index, Block((nextTas - currentTas) * 1000L, current.getDouble(valueKey)))
+            }
+        } catch (_: Exception) {
+            return null
+        }
+        return ret
+    }
+
+    private fun timeAsSeconds(jsonObject: JSONObject): Int = when {
+        jsonObject.has("timeAsSeconds") -> jsonObject.getInt("timeAsSeconds")
+        jsonObject.has("offset")        -> jsonObject.getInt("offset") * 60
+        jsonObject.has("minutes")       -> jsonObject.getInt("minutes") * 60
+        jsonObject.has("start")         -> {
+            val parts = jsonObject.getString("start").split(":")
+            parts[0].toInt() * 3600 + parts[1].toInt() * 60 + if (parts.size > 2) parts[2].toInt() else 0
+        }
+
+        else                           -> 0
     }
 }

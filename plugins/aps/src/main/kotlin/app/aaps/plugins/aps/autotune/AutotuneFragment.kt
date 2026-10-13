@@ -391,6 +391,7 @@ class AutotuneFragment : DaggerFragment() {
     private fun addWarnings(): String {
         var warning = ""
         var nl = ""
+        val multiBlockIcIsf = preferences.get(BooleanKey.AutotuneMultiIsfIc)
         if (profileFunction.getProfile() == null) {
             warning = rh.gs(app.aaps.core.ui.R.string.profileswitch_ismissing)
             return warning
@@ -399,12 +400,12 @@ class AutotuneFragment : DaggerFragment() {
             profile =
                 atProfileProvider.get().with(profileStore.getSpecificProfile(profileName)?.let { ProfileSealed.Pure(value = it, activePlugin = null) } ?: currentProfile, LocalInsulin("")).also { profile ->
                     if (!profile.isValid) return rh.gs(R.string.autotune_profile_invalid)
-                    if (profile.icSize > 1) {
-                        warning += nl + rh.gs(R.string.autotune_ic_warning, profile.icSize, profile.ic)
+                    if (!multiBlockIcIsf && profile.icSize > 1) {
+                        warning += nl + rh.gs(R.string.autotune_ic_warning, profile.icSize, profile.averageIc)
                         nl = "\n"
                     }
-                    if (profile.isfSize > 1) {
-                        warning += nl + rh.gs(R.string.autotune_isf_warning, profile.isfSize, profileUtil.fromMgdlToUnits(profile.isf), profileFunction.getUnits().asText)
+                    if (!multiBlockIcIsf && profile.isfSize > 1) {
+                        warning += nl + rh.gs(R.string.autotune_isf_warning, profile.isfSize, profileUtil.fromMgdlToUnits(profile.averageIsf), profileFunction.getUnits().asText)
                     }
                 }
         }
@@ -455,6 +456,7 @@ class AutotuneFragment : DaggerFragment() {
                         var toMgDl = 1.0
                         if (profileFunction.getUnits() == GlucoseUnit.MMOL) toMgDl = Constants.MMOLL_TO_MGDL
                         val isfFormat = if (profileFunction.getUnits() == GlucoseUnit.MMOL) "%.2f" else "%.1f"
+                        val multiBlockIcIsf = preferences.get(BooleanKey.AutotuneMultiIsfIc)
                         binding.autotuneResults.addView(
                             TableLayout(context).also { layout ->
                                 layout.addView(
@@ -465,6 +467,13 @@ class AutotuneFragment : DaggerFragment() {
                                         setTextAppearance(android.R.style.TextAppearance_Material_Medium)
                                     })
                                 autotunePlugin.tunedProfile?.let { tuned ->
+                                    layout.addView(
+                                        TextView(context).apply {
+                                            text = if (multiBlockIcIsf) rh.gs(R.string.autotune_mode_multiblock) else rh.gs(R.string.autotune_mode_classic)
+                                            gravity = Gravity.CENTER_HORIZONTAL
+                                            setTextAppearance(android.R.style.TextAppearance_Material_Small)
+                                        }
+                                    )
                                     layout.addView(toTableRowHeader(context))
                                     val tuneInsulin = preferences.get(BooleanKey.AutotuneTuneInsulinCurve)
                                     if (tuneInsulin) {
@@ -487,24 +496,67 @@ class AutotuneFragment : DaggerFragment() {
                                             )
                                         )
                                     }
-                                    layout.addView(
-                                        toTableRowValue(
-                                            context,
-                                            rh.gs(app.aaps.core.ui.R.string.isf_short),
-                                            Round.roundTo(autotunePlugin.pumpProfile.isf / toMgDl, 0.001),
-                                            Round.roundTo(tuned.isf / toMgDl, 0.001),
-                                            isfFormat
+                                    if (multiBlockIcIsf) {
+                                        layout.addView(
+                                            TextView(context).apply {
+                                                text = rh.gs(app.aaps.core.ui.R.string.isf_short)
+                                                setTypeface(typeface, Typeface.BOLD)
+                                                gravity = Gravity.CENTER_HORIZONTAL
+                                                setTextAppearance(android.R.style.TextAppearance_Material_Medium)
+                                            }
                                         )
-                                    )
-                                    layout.addView(
-                                        toTableRowValue(
-                                            context,
-                                            rh.gs(app.aaps.core.ui.R.string.ic_short),
-                                            Round.roundTo(autotunePlugin.pumpProfile.ic, 0.001),
-                                            Round.roundTo(tuned.ic, 0.001),
-                                            "%.2f"
+                                        layout.addView(toTableRowHeader(context, true))
+                                        autotuneTimeBlocks().forEach { block ->
+                                            layout.addView(
+                                                toTableRowValue(
+                                                    context,
+                                                    block.label,
+                                                    Round.roundTo(autotunePlugin.pumpProfile.getIsf(block.startHour) / toMgDl, 0.001),
+                                                    Round.roundTo(tuned.getIsf(block.startHour) / toMgDl, 0.001),
+                                                    isfFormat
+                                                )
+                                            )
+                                        }
+                                        layout.addView(
+                                            TextView(context).apply {
+                                                text = rh.gs(app.aaps.core.ui.R.string.ic_short)
+                                                setTypeface(typeface, Typeface.BOLD)
+                                                gravity = Gravity.CENTER_HORIZONTAL
+                                                setTextAppearance(android.R.style.TextAppearance_Material_Medium)
+                                            }
                                         )
-                                    )
+                                        layout.addView(toTableRowHeader(context, true))
+                                        autotuneTimeBlocks().forEach { block ->
+                                            layout.addView(
+                                                toTableRowValue(
+                                                    context,
+                                                    block.label,
+                                                    Round.roundTo(autotunePlugin.pumpProfile.getIc(block.startHour), 0.001),
+                                                    Round.roundTo(tuned.getIc(block.startHour), 0.001),
+                                                    "%.2f"
+                                                )
+                                            )
+                                        }
+                                    } else {
+                                        layout.addView(
+                                            toTableRowValue(
+                                                context,
+                                                rh.gs(app.aaps.core.ui.R.string.isf_short),
+                                                Round.roundTo(autotunePlugin.pumpProfile.averageIsf / toMgDl, 0.001),
+                                                Round.roundTo(tuned.averageIsf / toMgDl, 0.001),
+                                                isfFormat
+                                            )
+                                        )
+                                        layout.addView(
+                                            toTableRowValue(
+                                                context,
+                                                rh.gs(app.aaps.core.ui.R.string.ic_short),
+                                                Round.roundTo(autotunePlugin.pumpProfile.averageIc, 0.001),
+                                                Round.roundTo(tuned.averageIc, 0.001),
+                                                "%.2f"
+                                            )
+                                        )
+                                    }
                                     layout.addView(
                                         TextView(context).apply {
                                             text = rh.gs(app.aaps.core.ui.R.string.basal)
@@ -599,5 +651,18 @@ class AutotuneFragment : DaggerFragment() {
 
     private fun log(message: String) {
         autotuneFS.atLog("[Fragment] $message")
+    }
+
+    private data class UiTimeBlock(val startHour: Int, val label: String)
+
+    private fun autotuneTimeBlocks(): List<UiTimeBlock> {
+        val hours = when (preferences.get(IntKey.AutotuneTimeBlockHours)) {
+            4, 6, 8, 12, 24 -> preferences.get(IntKey.AutotuneTimeBlockHours)
+            else            -> 6
+        }
+        return (0 until 24 step hours).map { startHour ->
+            val endHour = (startHour + hours - 1).coerceAtMost(23)
+            UiTimeBlock(startHour = startHour, label = String.format(Locale.getDefault(), "%02d:00-%02d:59", startHour, endHour))
+        }
     }
 }

@@ -142,8 +142,16 @@
     <string name="autotune_tune_insulin_curve_title">Tune insulin curve</string>
     <string name="autotune_tune_insulin_curve_summary">Enable only if you use free peak. This option will tune peak and DIA durations</string>
     <string name="autotune_default_tune_days_title">Number of days of data</string>
+    <string name="autotune_multi_isf_ic_title">Enable multi-block IC/ISF tuning</string>
+    <string name="autotune_multi_isf_ic_summary">When enabled, Autotune tunes IC and ISF by time block instead of using one all-day value. Disable to keep the current all-day tuning behavior.</string>
+    <string name="autotune_time_block_hours_title">IC/ISF time block hours</string>
+    <string name="autotune_time_block_hours_summary">Supported values are 4, 6, 8, 12, or 24 hours per tuning block. Unsupported values fall back to 6 hours.</string>
+    <string name="autotune_min_isf_data_points_title">Minimum ISF data points per block</string>
+    <string name="autotune_min_isf_data_points_summary">Minimum number of ISF-tagged glucose points needed before a block gets its own ISF result. Sparse blocks fall back to the all-day result.</string>
+    <string name="autotune_min_cr_meals_title">Minimum meal events per block</string>
+    <string name="autotune_min_cr_meals_summary">Minimum number of meal events needed before a block gets its own carb ratio result. Sparse blocks fall back to the all-day result.</string>
     <string name="autotune_circadian_ic_isf_title">Apply average result in circadian IC/ISF</string>
-    <string name="autotune_circadian_ic_isf_summary">Autotune will not tune circadian variations, this option only apply the average tuning of IC and ISF to your circadian input profile</string>
+    <string name="autotune_circadian_ic_isf_summary">Classic Autotune does not tune circadian variations, so this option applies the average IC and ISF result to your circadian input profile. In multi-block IC/ISF mode the tuned block values are used directly.</string>
     <string name="autotune_additional_log_title">Include more log information for debugging</string>
     <string name="autotune_additional_log_summary">Switch on only if requested by dev to send more log information to help debugging Autotune plugin</string>
     <string name="autotune_default_tune_days_summary">Default number of days of data to be processed by Autotune (up to 30)</string>
@@ -159,6 +167,8 @@
     <string name="autotune_warning_after_run">Check the results carefully before using it!</string>
     <string name="autotune_partial_result">Partial result day %1$d / %2$d tuned</string>
     <string name="autotune_result">Result: %1$s</string>
+    <string name="autotune_mode_classic">Mode: classic all-day IC/ISF tuning</string>
+    <string name="autotune_mode_multiblock">Mode: multi-block IC/ISF tuning</string>
     <string name="autotune_param">Param</string>
     <string name="autotune_percent">%</string>
     <string name="autotune_missing">Missing</string>
