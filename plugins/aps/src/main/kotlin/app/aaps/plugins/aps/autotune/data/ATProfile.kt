@@ -84,9 +84,10 @@ class ATProfile @Inject constructor(
             var minIc = Double.MAX_VALUE
             var minIsf = Double.MAX_VALUE
             for (h in 0..23) {
+                val secondsFromMidnight = T.hours(h.toLong()).secs().toInt()
                 basal[h] = Round.roundTo(profile.basalBlocks.blockValueBySeconds(T.hours(h.toLong()).secs().toInt(), 1.0, 0), 0.001)
-                ic[h] = Round.roundTo(profile.icBlocks.blockValueBySeconds(T.hours(h.toLong()).secs().toInt(), 1.0, 0), 0.001)
-                isf[h] = Round.roundTo(profile.isfBlocks.blockValueBySeconds(T.hours(h.toLong()).secs().toInt(), 1.0, 0), 0.001)
+                ic[h] = Round.roundTo(profile.getIcTimeFromMidnight(secondsFromMidnight), 0.001)
+                isf[h] = Round.roundTo(profile.getIsfMgdlTimeFromMidnight(secondsFromMidnight), 0.001)
                 minBasal = min(minBasal, basal[h])
                 minIc = min(minIc, ic[h])
                 minIsf = min(minIsf, isf[h])
